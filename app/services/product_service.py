@@ -8,7 +8,6 @@ from app.schemas import ProductUpdateSchema, ProductCreateSchema, OrderBaseSchem
 from app.models.products import ProductModel
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
 
 
 class ProductService:
@@ -25,29 +24,29 @@ class ProductService:
     @classmethod
     async def check_product_stock(cls, session: AsyncSession, order_data: dict) -> dict:
         res = {}
-        logger.info(order_data)
-        print(order_data)
+        res["total_amount"] = 0
+
         for order_item in order_data.get("items", []):
             current_product = await cls.get_product_by_id(
                 session, order_item.get("product_id")
             )
-            if current_product.quantity >= order_item.get("quantity"):
-                data = {
-                    "product_id": int(current_product.id),
-                    "quantity": int(order_item.get("quantity")),
-                    "price": float(current_product.price),
-                }
-                if not res.get("available_products", []):
-                    res["available_products"] = [data]
-                else:
-                    res["available_products"].append(data)
-        res["available"] = len(res["available_products"]) == len(
-            order_data.get("items", [])
-        )
-        res["total_amount"] = sum(
-            res["available_products"][i]["price"]
-            for i in range(len(res["available_products"]))
-        )
+            if current_product.quantity < order_item.get("quantity"):
+                return {"ok": False}
+
+            data = {
+                "product_id": current_product.id,
+                "quantity": order_item.get("quantity"),
+                "price": current_product.price,
+            }
+
+            if not res.get("products", []):
+                res["products"] = [data]
+            else:
+                res["products"].append(data)
+
+            res["total_amount"] += order_item.get("quantity") * current_product.price
+
+        res["ok"] = True
         return res
 
     @classmethod
