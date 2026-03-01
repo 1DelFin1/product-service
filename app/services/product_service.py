@@ -104,14 +104,14 @@ class ProductService:
             )
 
     @classmethod
-    async def handle_paid_products(cls, session: AsyncSession, order_id: UUID):
+    async def handle_paid_products(cls, order: dict):
         # TODO: сделать проверку статуса заказа
-        stmt = delete(ReservedProductModel).where(
-            ReservedProductModel.order_id == order_id
-        )
-        await session.execute(stmt)
-        await session.commit()
-        return {"ok": True}
+        async with async_session_factory() as session:
+            stmt = delete(ReservedProductModel).where(
+                ReservedProductModel.order_id == order.get("order_id")
+            )
+            await session.execute(stmt)
+            await session.commit()
 
     @classmethod
     async def get_product_price_by_id(cls, session: AsyncSession, product_id: int):

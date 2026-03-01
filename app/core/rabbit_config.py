@@ -15,3 +15,8 @@ products_reserved_queue = RabbitQueue(
     name=settings.rabbitmq.PRODUCTS_RESERVE_ROUTING_KEY,
     durable=True,
 )
+
+products_delete_queue = RabbitQueue(
+    name=settings.rabbitmq.PRODUCTS_DELETE_ROUTING_KEY,
+    durable=True,
+)
