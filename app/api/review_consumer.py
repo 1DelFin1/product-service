@@ -1,6 +1,6 @@
 from sqlalchemy import update
 
-from app.core.rabbit_config import rabbit_broker, products_queue
+from app.core.rabbit_config import rabbit_broker, products_reserved_queue
 from app.core.database import async_session_factory
 from app.models.products import ProductModel
 

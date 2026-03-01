@@ -11,7 +11,7 @@ products_exchange = RabbitExchange(
     durable=True,
 )
 
-products_queue = RabbitQueue(
+products_reserved_queue = RabbitQueue(
     name=settings.rabbitmq.PRODUCTS_RESERVE_ROUTING_KEY,
     durable=True,
 )
