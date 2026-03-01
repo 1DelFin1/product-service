@@ -7,9 +7,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routers import products_router
 
-# from app.api.review_consumer import handle_review_created # noqa
 from app.core.config import settings
-from app.core.rabbit_config import rabbit_broker, products_queue, products_exchange
+from app.core.rabbit_config import rabbit_broker
 
 
 @asynccontextmanager
