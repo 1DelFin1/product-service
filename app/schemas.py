@@ -1,5 +1,4 @@
 from uuid import UUID
-from typing import List
 from pydantic import BaseModel, Field
 
 
@@ -8,6 +7,7 @@ class ProductBaseSchema(BaseModel):
     description: str = Field(max_length=255)
     price: float
     quantity: int
+    seller_id: UUID
 
 
 class ProductCreateSchema(ProductBaseSchema):
@@ -23,4 +23,3 @@ class ProductUpdateSchema(BaseModel):
 class OrderBaseSchema(BaseModel):
     product_id: int
     quantity: int
-    price: float

@@ -13,6 +13,7 @@ dependencies = [
     "black>=25.1.0",
     "fastapi>=0.116.1",
     "faststream[rabbit]>=0.5.48",
+    "greenlet>=3.2.4",
     "passlib>=1.7.4",
     "pydantic-settings>=2.10.1",
     "pydantic[email]>=2.11.7",

@@ -8,28 +8,35 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-class Settings(BaseSettings):
+class Conf(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
         env_ignore_empty=True,
         extra="ignore",
     )
 
+
+class AppConfig(Conf):
     IS_PROD: bool
 
+
+class CORSConfig(Conf):
+    CORS_ORIGINS: list[str]
+    CORS_METHODS: list[str]
+    CORS_HEADERS: list[str]
+
+
+class UrlsConfig(Conf):
+    NGINX_URL: str = "http://nginx_gateway"
+
+
+class PostgresConfig(Conf):
     DB_PRODUCT_SERVICE_HOST: str
     DB_PRODUCT_SERVICE_PORT: int
     DB_PRODUCT_SERVICE_NAME: str
     DB_PRODUCT_SERVICE_USER: str
     DB_PRODUCT_SERVICE_PASSWORD: str
-
     ECHO: bool
-
-    CORS_ORIGINS: list[str]
-    CORS_METHODS: list[str]
-    CORS_HEADERS: list[str]
-
-    RABBITMQ_URL: str
 
     @computed_field
     @property
@@ -42,6 +49,27 @@ class Settings(BaseSettings):
             port=self.DB_PRODUCT_SERVICE_PORT,
             path=self.DB_PRODUCT_SERVICE_NAME,
         )
+
+
+class RabbitConfig(Conf):
+    PRODUCTS_ROUTING_KEY: str = "products"
+    PRODUCTS_RESERVE_ROUTING_KEY: str = "products.reserve"
+    PRODUCTS_EXCHANGE: str = "products"
+    RABBITMQ_URL: str
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_ignore_empty=True,
+        extra="ignore",
+    )
+
+    app: AppConfig = AppConfig()
+    cors: CORSConfig = CORSConfig()
+    urls: UrlsConfig = UrlsConfig()
+    pg_database: PostgresConfig = PostgresConfig()
+    rabbitmq: RabbitConfig = RabbitConfig()
 
 
 settings = Settings()

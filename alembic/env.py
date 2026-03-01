@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from alembic import context
 
 from app.models.products import ProductModel
+from app.models.reserved_products import ReservedProductModel
 from app.core.database import Base
 from app.core.config import settings
 
@@ -16,7 +17,7 @@ from app.core.config import settings
 config = context.config
 
 # section = config.config_ini_section
-config.set_main_option("sqlalchemy.url", str(settings.POSTGRES_URL_ASYNC))
+config.set_main_option("sqlalchemy.url", str(settings.pg_database.POSTGRES_URL_ASYNC))
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.

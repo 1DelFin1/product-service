@@ -1,10 +1,12 @@
-import json
 import logging
+from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, update, insert, delete, case, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.database import async_session_factory
 from app.schemas import ProductUpdateSchema, ProductCreateSchema, OrderBaseSchema
+from app.models.reserved_products import ReservedProductModel
 from app.models.products import ProductModel
 
 logger = logging.getLogger(__name__)
@@ -48,6 +50,64 @@ class ProductService:
 
         res["ok"] = True
         return res
+
+    @classmethod
+    async def reserve_product(cls, order_data: dict):
+        async with async_session_factory() as session:
+            items = order_data.get("items", [])
+            if items:
+                quantity_by_product_id = {}
+                for item in items:
+                    product_id = item.get("product_id")
+                    quantity_by_product_id[product_id] = quantity_by_product_id.get(
+                        product_id, 0
+                    ) + item.get("quantity")
+
+                decrement_case = case(
+                    quantity_by_product_id,
+                    value=ProductModel.id,
+                    else_=0,
+                )
+                update_stmt = (
+                    update(ProductModel)
+                    .where(ProductModel.id.in_(tuple(quantity_by_product_id.keys())))
+                    .values(
+                        {
+                            "quantity": func.greatest(
+                                ProductModel.quantity - decrement_case,
+                                0,
+                            )
+                        }
+                    )
+                )
+                await session.execute(update_stmt)
+
+                reserved_stmt = insert(ReservedProductModel).values(
+                    [
+                        {
+                            "product_id": item.get("product_id"),
+                            "quantity": item.get("quantity"),
+                            "order_id": order_data.get("correlation_id"),
+                        }
+                        for item in items
+                    ]
+                )
+                await session.execute(reserved_stmt)
+
+            await session.commit()
+
+            # TODO: сделать отправку в orders.reserved
+        return {"ok": True, "order_id": order_data.get("correlation_id")}
+
+    @classmethod
+    async def handle_paid_products(cls, session: AsyncSession, order_id: UUID):
+        # TODO: сделать проверку статуса заказа
+        stmt = delete(ReservedProductModel).where(
+            ReservedProductModel.order_id == order_id
+        )
+        await session.execute(stmt)
+        await session.commit()
+        return {"ok": True}
 
     @classmethod
     async def get_product_price_by_id(cls, session: AsyncSession, product_id: int):

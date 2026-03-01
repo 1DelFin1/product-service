@@ -1,11 +1,9 @@
-import json
-
 from fastapi import APIRouter
 
 from app.api.deps import SessionDep
 from app.services import ProductService
 from app.exceptions import PRODUCT_NOT_FOUND_EXCEPTION
-from app.schemas import ProductCreateSchema, ProductUpdateSchema, OrderBaseSchema
+from app.schemas import ProductCreateSchema, ProductUpdateSchema
 
 
 products_router = APIRouter(prefix="/products", tags=["products"])

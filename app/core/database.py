@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from app.core.config import settings
 
 
-engine = create_async_engine(str(settings.POSTGRES_URL_ASYNC), echo=settings.ECHO)
+engine = create_async_engine(str(settings.pg_database.POSTGRES_URL_ASYNC))
 
 async_session_factory = async_sessionmaker(
     engine,
