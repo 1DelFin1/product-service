@@ -4,8 +4,10 @@ from uuid import UUID
 from sqlalchemy import select, update, insert, delete, case, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.database import async_session_factory
-from app.schemas import ProductUpdateSchema, ProductCreateSchema, OrderBaseSchema
+from app.core.rabbit_config import rabbit_broker
+from app.schemas import ProductUpdateSchema, ProductCreateSchema
 from app.models.reserved_products import ReservedProductModel
 from app.models.products import ProductModel
 
@@ -96,8 +98,10 @@ class ProductService:
 
             await session.commit()
 
-            # TODO: сделать отправку в orders.reserved
-        return {"ok": True, "order_id": order_data.get("correlation_id")}
+            payload = {"ok": True, "order_id": order_data.get("correlation_id")}
+            await rabbit_broker.publish(
+                payload, routing_key=settings.rabbitmq.ORDERS_RESERVED_ROUTING_KEY
+            )
 
     @classmethod
     async def handle_paid_products(cls, session: AsyncSession, order_id: UUID):
