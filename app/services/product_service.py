@@ -89,7 +89,7 @@ class ProductService:
                         {
                             "product_id": item.get("product_id"),
                             "quantity": item.get("quantity"),
-                            "order_id": order_data.get("correlation_id"),
+                            "order_id": order_data.get("order_id"),
                         }
                         for item in items
                     ]
@@ -98,7 +98,7 @@ class ProductService:
 
             await session.commit()
 
-            payload = {"ok": True, "order_id": order_data.get("correlation_id")}
+            payload = {"ok": True, "order_id": order_data.get("order_id")}
             await rabbit_broker.publish(
                 payload, routing_key=settings.rabbitmq.ORDERS_RESERVED_ROUTING_KEY
             )
