@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routers import products_router
+
 # from app.api.review_consumer import handle_review_created # noqa
 from app.core.config import settings
 from app.core.rabbit_config import rabbit_broker, products_queue, products_exchange
@@ -16,18 +17,6 @@ async def lifespan(app: FastAPI):
     logging.basicConfig(level=logging.INFO)
 
     await rabbit_broker.start()
-
-    exchange = await rabbit_broker.declare_exchange(
-        products_exchange
-    )
-    queue = await rabbit_broker.declare_queue(
-        products_queue
-    )
-
-    await queue.bind(
-        exchange=exchange,
-        routing_key=settings.rabbitmq.PRODUCTS_RESERVE_ROUTING_KEY,
-    )
     yield
     await rabbit_broker.close()
 
