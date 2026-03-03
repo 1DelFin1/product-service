@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routers import products_router
+from app.api.routers import products_router, categories_router
 
 from app.core.config import settings
 from app.core.rabbit_config import rabbit_broker
@@ -22,6 +22,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="product-service", lifespan=lifespan)
 app.include_router(products_router)
+app.include_router(categories_router)
 
 
 app.add_middleware(

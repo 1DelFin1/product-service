@@ -1,13 +1,16 @@
 import logging
+from random import randint
 from uuid import UUID
 
+from fastapi import HTTPException, status
 from sqlalchemy import select, update, insert, delete, case, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import async_session_factory
 from app.core.rabbit_config import rabbit_broker
-from app.schemas import ProductUpdateSchema, ProductCreateSchema
+from app.schemas import ProductUpdateSchema, ProductCreateSchema, CategoryCreateSchema
+from app.models.categories import CategoryModel
 from app.models.reserved_products import ReservedProductModel
 from app.models.products import ProductModel
 
@@ -20,10 +23,42 @@ class ProductService:
         cls, session: AsyncSession, product_data: ProductCreateSchema
     ):
         product = product_data.model_dump()
+        product["article"] = randint(100000, 999999)
+        product["price_discount"] = product_data.price
         new_product = ProductModel(**product)
         session.add(new_product)
         await session.commit()
         return {"ok": True}
+
+    @classmethod
+    async def get_all_categories(cls, session: AsyncSession) -> list[CategoryModel]:
+        stmt = select(CategoryModel).order_by(CategoryModel.name.asc())
+        categories = list((await session.scalars(stmt)).all())
+        return categories
+
+    @classmethod
+    async def create_category(
+        cls, session: AsyncSession, category_data: CategoryCreateSchema
+    ) -> CategoryModel:
+        normalized_name = category_data.name.strip()
+        if not normalized_name:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Category name cannot be empty",
+            )
+
+        existing_stmt = select(CategoryModel).where(
+            func.lower(CategoryModel.name) == normalized_name.lower()
+        )
+        existing_category = await session.scalar(existing_stmt)
+        if existing_category:
+            return existing_category
+
+        new_category = CategoryModel(name=normalized_name)
+        session.add(new_category)
+        await session.commit()
+        await session.refresh(new_category)
+        return new_category
 
     @classmethod
     async def check_product_stock(cls, session: AsyncSession, order_data: dict) -> dict:

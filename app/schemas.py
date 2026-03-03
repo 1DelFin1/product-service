@@ -3,11 +3,12 @@ from pydantic import BaseModel, Field
 
 
 class ProductBaseSchema(BaseModel):
-    name: str = Field(max_length=255)
-    description: str = Field(max_length=255)
+    name: str = Field(min_length=1, max_length=255)
+    description: str = Field(min_length=1, max_length=255)
     price: float
     quantity: int
     seller_id: UUID
+    category_id: int
 
 
 class ProductCreateSchema(ProductBaseSchema):
@@ -23,3 +24,11 @@ class ProductUpdateSchema(BaseModel):
 class OrderBaseSchema(BaseModel):
     product_id: int
     quantity: int
+
+
+class CategoryBaseSchema(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+
+
+class CategoryCreateSchema(CategoryBaseSchema):
+    pass

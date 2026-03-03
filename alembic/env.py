@@ -9,6 +9,7 @@ from alembic import context
 
 from app.models.products import ProductModel
 from app.models.reserved_products import ReservedProductModel
+from app.models.categories import CategoryModel
 from app.core.database import Base
 from app.core.config import settings
 
