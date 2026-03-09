@@ -1,8 +1,8 @@
 import logging
 from random import randint
-from uuid import UUID
+from uuid import uuid4, UUID
 
-from fastapi import HTTPException, status
+from fastapi import HTTPException, status, UploadFile
 from sqlalchemy import select, update, insert, delete, case, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,6 +10,7 @@ from app.core.config import settings
 from app.core.database import async_session_factory
 from app.core.rabbit_config import rabbit_broker
 from app.schemas import ProductUpdateSchema, ProductCreateSchema, CategoryCreateSchema
+from app.services.minio_service import MinioService
 from app.models.categories import CategoryModel
 from app.models.reserved_products import ReservedProductModel
 from app.models.products import ProductModel
@@ -18,11 +19,78 @@ logger = logging.getLogger(__name__)
 
 
 class ProductService:
+    @staticmethod
+    def _normalize_photo_urls(photo_urls: dict | None) -> dict[str, str]:
+        if not isinstance(photo_urls, dict):
+            return {}
+
+        ordered_urls: list[str] = []
+        for value in photo_urls.values():
+            if isinstance(value, str) and value.strip():
+                ordered_urls.append(value.strip())
+
+        return {str(index): url for index, url in enumerate(ordered_urls, start=1)}
+
+    @staticmethod
+    def _get_primary_photo_url(photo_urls: dict | None) -> str | None:
+        if not isinstance(photo_urls, dict) or not photo_urls:
+            return None
+
+        def _sort_key(key: str) -> tuple[int, str]:
+            return (int(key), key) if key.isdigit() else (10**9, key)
+
+        for key in sorted(photo_urls.keys(), key=_sort_key):
+            value = photo_urls.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+
+        return None
+
+    @classmethod
+    def serialize_product(cls, product: ProductModel) -> dict:
+        normalized_photo_urls = cls._normalize_photo_urls(product.photo_urls)
+
+        return {
+            "id": product.id,
+            "photo_urls": normalized_photo_urls,
+            "image_url": cls._get_primary_photo_url(normalized_photo_urls),
+            "name": product.name,
+            "article": product.article,
+            "description": product.description,
+            "price": product.price,
+            "price_discount": product.price_discount,
+            "category_id": product.category_id,
+            "rating": product.rating,
+            "total_reviews": product.total_reviews,
+            "quantity": product.quantity,
+            "seller_id": product.seller_id,
+            "is_active": product.is_active,
+            "created_at": product.created_at,
+            "updated_at": product.updated_at,
+        }
+
+    @staticmethod
+    def _resolve_image_extension(filename: str, content_type: str) -> str:
+        if "." in filename:
+            extension = filename.rsplit(".", 1)[-1].lower().strip()
+            if extension:
+                return extension
+
+        content_type_to_extension = {
+            "image/jpeg": "jpg",
+            "image/png": "png",
+            "image/webp": "webp",
+            "image/gif": "gif",
+            "image/bmp": "bmp",
+        }
+        return content_type_to_extension.get(content_type, "bin")
+
     @classmethod
     async def create_product(
         cls, session: AsyncSession, product_data: ProductCreateSchema
     ):
         product = product_data.model_dump()
+        product["photo_urls"] = cls._normalize_photo_urls(product_data.photo_urls)
         product["article"] = randint(100000, 999999)
         product["price_discount"] = product_data.price
         new_product = ProductModel(**product)
@@ -76,6 +144,7 @@ class ProductService:
                 "product_id": current_product.id,
                 "quantity": order_item.get("quantity"),
                 "price": current_product.price,
+                "seller_id": str(current_product.seller_id),
             }
 
             if not res.get("products", []):
@@ -149,6 +218,54 @@ class ProductService:
             await session.commit()
 
     @classmethod
+    async def upload_product_photos(
+        cls,
+        files: list[UploadFile],
+        product_uuid: str,
+    ) -> dict[str, str]:
+        if not files:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="At least one file must be provided",
+            )
+
+        try:
+            product_folder_uuid = str(UUID(product_uuid))
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid product_uuid",
+            )
+
+        minio_service = MinioService()
+        photo_urls: dict[str, str] = {}
+
+        for position, file in enumerate(files, start=1):
+            content_type = file.content_type or "application/octet-stream"
+            if not content_type.startswith("image/"):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Only image files are allowed",
+                )
+
+            file_data = await file.read()
+            if not file_data:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Uploaded image is empty",
+                )
+
+            file_extension = cls._resolve_image_extension(file.filename or "", content_type)
+            file_key = f"products/{product_folder_uuid}/{position}_{uuid4()}.{file_extension}"
+            photo_urls[str(position)] = minio_service.upload_file(
+                file_data=file_data,
+                filename=file_key,
+                content_type=content_type,
+            )
+
+        return photo_urls
+
+    @classmethod
     async def get_product_price_by_id(cls, session: AsyncSession, product_id: int):
         return await session.get(ProductModel.price, product_id)
 
@@ -184,6 +301,9 @@ class ProductService:
 
         new_product = product_data.model_dump(exclude_unset=True)
         for key, value in new_product.items():
+            if key == "photo_urls":
+                setattr(product, key, cls._normalize_photo_urls(value))
+                continue
             if new_product[key] != "":
                 setattr(product, key, value)
 

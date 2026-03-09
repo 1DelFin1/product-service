@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, File, Form, UploadFile
 
 from app.api.deps import SessionDep
 from app.services import ProductService
@@ -12,7 +12,7 @@ products_router = APIRouter(prefix="/products", tags=["products"])
 @products_router.get("")
 async def get_all_products(session: SessionDep):
     products = await ProductService.get_all_products(session)
-    return products
+    return [ProductService.serialize_product(product) for product in products]
 
 
 @products_router.post("")
@@ -26,12 +26,21 @@ async def check_product_stock(session: SessionDep, order_data: dict):
     return await ProductService.check_product_stock(session, order_data)
 
 
+@products_router.post("/photos/upload")
+async def upload_product_photos(
+    files: list[UploadFile] = File(...),
+    product_uuid: str = Form(...),
+):
+    photo_urls = await ProductService.upload_product_photos(files, product_uuid)
+    return {"photo_urls": photo_urls}
+
+
 @products_router.get("/{product_id}")
 async def get_product_by_id(session: SessionDep, product_id: int):
     product = await ProductService.get_product_by_id(session, product_id)
     if product is None:
         raise PRODUCT_NOT_FOUND_EXCEPTION
-    return product
+    return ProductService.serialize_product(product)
 
 
 @products_router.patch("/{product_id}")

@@ -30,6 +30,15 @@ class UrlsConfig(Conf):
     NGINX_URL: str = "http://nginx_gateway"
 
 
+class MinioConfig(Conf):
+    MINIO_ENDPOINT: str = "minio:9000"
+    MINIO_ACCESS: str
+    MINIO_SECRET: str
+    MINIO_BUCKET_NAME: str
+    MINIO_PUBLIC_ENDPOINT: str = "http://localhost:9000"
+    MINIO_SECURE: bool = False
+
+
 class PostgresConfig(Conf):
     DB_PRODUCT_SERVICE_HOST: str
     DB_PRODUCT_SERVICE_PORT: int
@@ -70,6 +79,7 @@ class Settings(BaseSettings):
 
     app: AppConfig = AppConfig()
     cors: CORSConfig = CORSConfig()
+    minio: MinioConfig = MinioConfig()
     urls: UrlsConfig = UrlsConfig()
     pg_database: PostgresConfig = PostgresConfig()
     rabbitmq: RabbitConfig = RabbitConfig()
