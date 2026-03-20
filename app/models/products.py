@@ -1,3 +1,4 @@
+from enum import Enum
 from uuid import UUID
 
 from sqlalchemy import Integer, String, Float, ForeignKey, JSON, text, Boolean
@@ -6,6 +7,12 @@ from sqlalchemy.dialects.postgresql import UUID as PGUUID
 
 from app.core.database import Base
 from app.models.mixins import TimestampMixin
+
+
+class ProductStatus(str, Enum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
 
 
 class ProductModel(Base, TimestampMixin):
@@ -25,4 +32,7 @@ class ProductModel(Base, TimestampMixin):
     total_reviews: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     quantity: Mapped[int] = mapped_column(Integer)
     seller_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    status: Mapped[ProductStatus] = mapped_column(
+        default=ProductStatus.PENDING, nullable=True
+    )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=True)

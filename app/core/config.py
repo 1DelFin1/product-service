@@ -70,6 +70,11 @@ class RabbitConfig(Conf):
     RABBITMQ_URL: str
 
 
+class JwtConfig(Conf):
+    JWT_ALGORITHM: str
+    JWT_SECRET_KEY: str
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -83,6 +88,7 @@ class Settings(BaseSettings):
     urls: UrlsConfig = UrlsConfig()
     pg_database: PostgresConfig = PostgresConfig()
     rabbitmq: RabbitConfig = RabbitConfig()
+    jwt: JwtConfig = JwtConfig()
 
 
 settings = Settings()

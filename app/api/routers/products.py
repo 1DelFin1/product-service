@@ -1,17 +1,26 @@
+from uuid import UUID
+
 from fastapi import APIRouter, File, Form, UploadFile
 
-from app.api.deps import SessionDep
+from app.api.deps import AdminDep, SessionDep
 from app.services import ProductService
 from app.exceptions import PRODUCT_NOT_FOUND_EXCEPTION
 from app.schemas import ProductCreateSchema, ProductUpdateSchema
+from app.models.products import ProductStatus
 
 
 products_router = APIRouter(prefix="/products", tags=["products"])
 
 
 @products_router.get("")
-async def get_all_products(session: SessionDep):
-    products = await ProductService.get_all_products(session)
+async def get_all_products(
+    session: SessionDep,
+    seller_id: UUID | None = None,
+):
+    products = await ProductService.get_all_products(
+        session,
+        seller_id=seller_id,
+    )
     return [ProductService.serialize_product(product) for product in products]
 
 
@@ -33,6 +42,32 @@ async def upload_product_photos(
 ):
     photo_urls = await ProductService.upload_product_photos(files, product_uuid)
     return {"photo_urls": photo_urls}
+
+
+@products_router.get("/moderation/pending")
+async def get_pending_products(session: SessionDep, _: AdminDep):
+    products = await ProductService.get_pending_products(session)
+    return [ProductService.serialize_product(product) for product in products]
+
+
+@products_router.patch("/{product_id}/approve")
+async def approve_product(session: SessionDep, product_id: int, _: AdminDep):
+    product = await ProductService.moderate_product(
+        session=session,
+        product_id=product_id,
+        next_status=ProductStatus.APPROVED,
+    )
+    return ProductService.serialize_product(product)
+
+
+@products_router.patch("/{product_id}/reject")
+async def reject_product(session: SessionDep, product_id: int, _: AdminDep):
+    product = await ProductService.moderate_product(
+        session=session,
+        product_id=product_id,
+        next_status=ProductStatus.REJECTED,
+    )
+    return ProductService.serialize_product(product)
 
 
 @products_router.get("/{product_id}")

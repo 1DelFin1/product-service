@@ -3,7 +3,7 @@ from random import randint
 from uuid import uuid4, UUID
 
 from fastapi import HTTPException, status, UploadFile
-from sqlalchemy import select, update, insert, delete, case, func
+from sqlalchemy import case, delete, func, insert, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -13,12 +13,30 @@ from app.schemas import ProductUpdateSchema, ProductCreateSchema, CategoryCreate
 from app.services.minio_service import MinioService
 from app.models.categories import CategoryModel
 from app.models.reserved_products import ReservedProductModel
-from app.models.products import ProductModel
+from app.models.products import ProductModel, ProductStatus
 
 logger = logging.getLogger(__name__)
 
 
 class ProductService:
+    @staticmethod
+    def _normalize_status(
+        raw_status: ProductStatus | str | None,
+    ) -> ProductStatus | None:
+        if isinstance(raw_status, ProductStatus):
+            return raw_status
+
+        if isinstance(raw_status, str):
+            normalized_status = raw_status.strip().lower()
+            if normalized_status == ProductStatus.PENDING.value:
+                return ProductStatus.PENDING
+            if normalized_status == ProductStatus.APPROVED.value:
+                return ProductStatus.APPROVED
+            if normalized_status == ProductStatus.REJECTED.value:
+                return ProductStatus.REJECTED
+
+        return None
+
     @staticmethod
     def _normalize_photo_urls(photo_urls: dict | None) -> dict[str, str]:
         if not isinstance(photo_urls, dict):
@@ -49,6 +67,10 @@ class ProductService:
     @classmethod
     def serialize_product(cls, product: ProductModel) -> dict:
         normalized_photo_urls = cls._normalize_photo_urls(product.photo_urls)
+        normalized_status = cls._normalize_status(product.status)
+        status_value = (
+            normalized_status.value if normalized_status else ProductStatus.APPROVED.value
+        )
 
         return {
             "id": product.id,
@@ -64,6 +86,7 @@ class ProductService:
             "total_reviews": product.total_reviews,
             "quantity": product.quantity,
             "seller_id": product.seller_id,
+            "status": status_value,
             "is_active": product.is_active,
             "created_at": product.created_at,
             "updated_at": product.updated_at,
@@ -93,6 +116,8 @@ class ProductService:
         product["photo_urls"] = cls._normalize_photo_urls(product_data.photo_urls)
         product["article"] = randint(100000, 999999)
         product["price_discount"] = product_data.price
+        product["status"] = ProductStatus.PENDING
+        product["is_active"] = False
         new_product = ProductModel(**product)
         session.add(new_product)
         await session.commit()
@@ -137,6 +162,12 @@ class ProductService:
             current_product = await cls.get_product_by_id(
                 session, order_item.get("product_id")
             )
+            if not current_product:
+                return {"ok": False}
+
+            if current_product.is_active is False:
+                return {"ok": False}
+
             if current_product.quantity < order_item.get("quantity"):
                 return {"ok": False}
 
@@ -271,18 +302,78 @@ class ProductService:
 
     @classmethod
     async def get_product_by_id(
-        cls, session: AsyncSession, product_id: int
+        cls, session: AsyncSession, product_id: int, include_unapproved: bool = False
     ) -> ProductModel | None:
         stmt = select(ProductModel).where(ProductModel.id == product_id)
         product = await session.scalar(stmt)
         if not product:
             return None
 
+        if include_unapproved:
+            return product
+
+        normalized_status = cls._normalize_status(product.status)
+        if normalized_status in (None, ProductStatus.APPROVED):
+            return product
+
+        return None
+
+    @classmethod
+    async def get_pending_products(cls, session: AsyncSession) -> list[ProductModel]:
+        stmt = (
+            select(ProductModel)
+            .where(ProductModel.status == ProductStatus.PENDING)
+            .order_by(ProductModel.created_at.desc())
+        )
+        products = list((await session.scalars(stmt)).all())
+        return products
+
+    @classmethod
+    async def moderate_product(
+        cls,
+        session: AsyncSession,
+        product_id: int,
+        next_status: ProductStatus,
+    ) -> ProductModel:
+        product = await cls.get_product_by_id(session, product_id, include_unapproved=True)
+        if not product:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Product not found",
+            )
+
+        if cls._normalize_status(product.status) != ProductStatus.PENDING:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Only pending products can be moderated",
+            )
+
+        product.status = next_status
+        product.is_active = next_status == ProductStatus.APPROVED
+        session.add(product)
+        await session.commit()
+        await session.refresh(product)
         return product
 
     @classmethod
-    async def get_all_products(cls, session: AsyncSession) -> list[ProductModel]:
+    async def get_all_products(
+        cls,
+        session: AsyncSession,
+        seller_id: UUID | None = None,
+    ) -> list[ProductModel]:
         stmt = select(ProductModel)
+
+        if seller_id is not None:
+            stmt = stmt.where(ProductModel.seller_id == seller_id)
+        else:
+            stmt = stmt.where(
+                or_(
+                    ProductModel.status == ProductStatus.APPROVED,
+                    ProductModel.status.is_(None),
+                )
+            )
+
+        stmt = stmt.order_by(ProductModel.created_at.desc())
         products = list((await session.scalars(stmt)).all())
         return products
 
