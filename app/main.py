@@ -8,19 +8,21 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.routers import products_router, categories_router
 from app.core.config import settings
 from app.core.rabbit_config import rabbit_broker
-from app.scheduler import scheduler
+from app.scheduler import scheduler, configure_scheduler
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logging.basicConfig(level=logging.INFO)
 
+    configure_scheduler()
     if not scheduler.running:
         scheduler.start()
 
     await rabbit_broker.start()
     yield
-    scheduler.shutdown()
+    if scheduler.running:
+        scheduler.shutdown(wait=False)
     await rabbit_broker.close()
 
 
