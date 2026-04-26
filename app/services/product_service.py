@@ -2,6 +2,7 @@ import logging
 from random import randint
 from uuid import uuid4, UUID
 
+import httpx
 from fastapi import HTTPException, status, UploadFile
 from sqlalchemy import case, delete, func, insert, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,7 +10,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.database import async_session_factory
 from app.core.rabbit_config import rabbit_broker
-from app.schemas import ProductUpdateSchema, ProductCreateSchema, CategoryCreateSchema
+from app.schemas import (
+    ProductUpdateSchema,
+    ProductCreateSchema,
+    CategoryCreateSchema,
+    CategoryUpdateSchema,
+)
 from app.services.minio_service import MinioService
 from app.models.categories import CategoryModel
 from app.models.reserved_products import ReservedProductModel
@@ -19,6 +25,105 @@ logger = logging.getLogger(__name__)
 
 
 class ProductService:
+    @staticmethod
+    def _extract_review_product_ids(event: dict) -> list[int]:
+        if not isinstance(event, dict):
+            return []
+
+        product_ids: set[int] = set()
+
+        raw_product_ids = event.get("product_ids")
+        if isinstance(raw_product_ids, list):
+            for value in raw_product_ids:
+                if isinstance(value, int) and value > 0:
+                    product_ids.add(value)
+                elif isinstance(value, str) and value.isdigit():
+                    product_ids.add(int(value))
+
+        raw_product_id = event.get("product_id")
+        if isinstance(raw_product_id, int) and raw_product_id > 0:
+            product_ids.add(raw_product_id)
+        elif isinstance(raw_product_id, str) and raw_product_id.isdigit():
+            product_ids.add(int(raw_product_id))
+
+        return sorted(product_ids)
+
+    @staticmethod
+    def _extract_reviews(payload: object) -> list[dict]:
+        if isinstance(payload, list):
+            return [item for item in payload if isinstance(item, dict)]
+
+        if isinstance(payload, dict):
+            for key in ("reviews", "items", "results", "data", "content"):
+                maybe_list = payload.get(key)
+                if isinstance(maybe_list, list):
+                    return [item for item in maybe_list if isinstance(item, dict)]
+
+        return []
+
+    @classmethod
+    async def _fetch_reviews_stats(cls, product_id: int) -> tuple[int, float] | None:
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.get(
+                    f"{settings.urls.NGINX_URL}/reviews/product/{product_id}",
+                    headers={"Content-Type": "application/json"},
+                    timeout=10,
+                )
+                response.raise_for_status()
+                reviews = cls._extract_reviews(response.json())
+            except Exception:
+                logger.exception(
+                    "Failed to load reviews for rating recalculation: product_id=%s",
+                    product_id,
+                )
+                return None
+
+        ratings: list[float] = []
+        for review in reviews:
+            rating = review.get("rating")
+            if isinstance(rating, (int, float)):
+                ratings.append(float(rating))
+            elif isinstance(rating, str):
+                try:
+                    ratings.append(float(rating))
+                except ValueError:
+                    continue
+
+        if not ratings:
+            return 0, 0.0
+
+        total_reviews = len(ratings)
+        average_rating = sum(ratings) / total_reviews
+        return total_reviews, average_rating
+
+    @classmethod
+    async def handle_review_changed(cls, event: dict) -> None:
+        product_ids = cls._extract_review_product_ids(event)
+        if not product_ids:
+            return
+
+        async with async_session_factory() as session:
+            for product_id in product_ids:
+                stats = await cls._fetch_reviews_stats(product_id)
+                if stats is None:
+                    continue
+
+                total_reviews, average_rating = stats
+                stmt = (
+                    update(ProductModel)
+                    .where(ProductModel.id == product_id)
+                    .values(
+                        {
+                            "rating": average_rating,
+                            "total_reviews": total_reviews,
+                        }
+                    )
+                )
+                await session.execute(stmt)
+
+            await session.commit()
+
     @staticmethod
     def _normalize_status(
         raw_status: ProductStatus | str | None,
@@ -154,6 +259,68 @@ class ProductService:
         return new_category
 
     @classmethod
+    async def update_category(
+        cls,
+        session: AsyncSession,
+        category_id: int,
+        category_data: CategoryUpdateSchema,
+    ) -> CategoryModel:
+        category = await session.get(CategoryModel, category_id)
+        if category is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Category not found",
+            )
+
+        normalized_name = category_data.name.strip()
+        if not normalized_name:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Category name cannot be empty",
+            )
+
+        existing_stmt = select(CategoryModel).where(
+            func.lower(CategoryModel.name) == normalized_name.lower(),
+            CategoryModel.id != category_id,
+        )
+        existing_category = await session.scalar(existing_stmt)
+        if existing_category is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Category with this name already exists",
+            )
+
+        category.name = normalized_name
+        session.add(category)
+        await session.commit()
+        await session.refresh(category)
+        return category
+
+    @classmethod
+    async def delete_category(cls, session: AsyncSession, category_id: int) -> dict[str, bool]:
+        category = await session.get(CategoryModel, category_id)
+        if category is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Category not found",
+            )
+
+        products_count_stmt = (
+            select(func.count(ProductModel.id))
+            .where(ProductModel.category_id == category_id)
+        )
+        products_count = await session.scalar(products_count_stmt)
+        if (products_count or 0) > 0:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Cannot delete category linked to products",
+            )
+
+        await session.delete(category)
+        await session.commit()
+        return {"ok": True}
+
+    @classmethod
     async def check_product_stock(cls, session: AsyncSession, order_data: dict) -> dict:
         res = {}
         res["total_amount"] = 0
@@ -207,17 +374,21 @@ class ProductService:
                 )
                 update_stmt = (
                     update(ProductModel)
-                    .where(ProductModel.id.in_(tuple(quantity_by_product_id.keys())))
-                    .values(
-                        {
-                            "quantity": func.greatest(
-                                ProductModel.quantity - decrement_case,
-                                0,
-                            )
-                        }
+                    .where(
+                        ProductModel.id.in_(tuple(quantity_by_product_id.keys())),
+                        ProductModel.quantity >= decrement_case,
                     )
+                    .values({"quantity": ProductModel.quantity - decrement_case})
                 )
-                await session.execute(update_stmt)
+                update_result = await session.execute(update_stmt)
+
+                if (update_result.rowcount or 0) != len(quantity_by_product_id):
+                    await session.rollback()
+                    logger.warning(
+                        "Reserve rejected due to insufficient quantity: order_id=%s",
+                        order_data.get("order_id"),
+                    )
+                    return
 
                 reserved_stmt = insert(ReservedProductModel).values(
                     [

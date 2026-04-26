@@ -64,6 +64,7 @@ class RabbitConfig(Conf):
     PRODUCTS_ROUTING_KEY: str = "products"
     PRODUCTS_RESERVE_ROUTING_KEY: str = "products.reserve"
     PRODUCTS_DELETE_ROUTING_KEY: str = "products.delete"
+    REVIEWS_ROUTING_KEY: str = "reviews"
     PRODUCTS_EXCHANGE: str = "products"
     ORDERS_ROUTING_KEY: str = "orders"
     ORDERS_RESERVED_ROUTING_KEY: str = "orders.reserved"

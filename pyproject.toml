@@ -15,6 +15,7 @@ dependencies = [
     "fastapi>=0.116.1",
     "faststream[rabbit]>=0.5.48",
     "greenlet>=3.2.4",
+    "httpx>=0.28.1",
     "minio>=7.2.20",
     "passlib>=1.7.4",
     "pydantic-settings>=2.10.1",

@@ -38,3 +38,7 @@ class CategoryBaseSchema(BaseModel):
 
 class CategoryCreateSchema(CategoryBaseSchema):
     pass
+
+
+class CategoryUpdateSchema(CategoryBaseSchema):
+    pass

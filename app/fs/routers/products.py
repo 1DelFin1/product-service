@@ -1,6 +1,10 @@
 from faststream.rabbit import RabbitRouter
 
-from app.core.rabbit_config import products_reserved_queue, products_delete_queue
+from app.core.rabbit_config import (
+    products_reserved_queue,
+    products_delete_queue,
+    reviews_queue,
+)
 from app.services import ProductService
 
 products_router = RabbitRouter()
@@ -14,3 +18,8 @@ async def reserve_products(products: dict):
 @products_router.subscriber(products_delete_queue)
 async def delete_products(order: dict):
     await ProductService.handle_paid_products(order)
+
+
+@products_router.subscriber(reviews_queue)
+async def handle_review_event(event: dict):
+    await ProductService.handle_review_changed(event)

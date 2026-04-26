@@ -20,3 +20,8 @@ products_delete_queue = RabbitQueue(
     name=settings.rabbitmq.PRODUCTS_DELETE_ROUTING_KEY,
     durable=True,
 )
+
+reviews_queue = RabbitQueue(
+    name=settings.rabbitmq.REVIEWS_ROUTING_KEY,
+    durable=True,
+)
